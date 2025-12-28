@@ -31,6 +31,7 @@ Complete guide for running this ML prediction API locally and deploying to AWS.
 
 ### 1. Setup Environment
 
+**PowerShell (Windows):**
 ```powershell
 # Navigate to project
 cd C:\Users\danpl\projects\utilities\dynamic-workforce
@@ -40,8 +41,19 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt
 ```
 
+**Bash (Linux/Mac):**
+```bash
+# Navigate to project
+cd ~/projects/utilities/dynamic-workforce
+
+# Install dependencies
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+```
+
 ### 2. Run Tests Locally
 
+**PowerShell (Windows):**
 ```powershell
 # Run all tests
 pytest
@@ -56,9 +68,27 @@ pytest tests/unit/test_predictor.py -v
 start htmlcov/index.html
 ```
 
+**Bash (Linux/Mac):**
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+
+# Run specific test
+pytest tests/unit/test_predictor.py -v
+
+# View coverage report (Linux)
+xdg-open htmlcov/index.html
+# Or on Mac
+open htmlcov/index.html
+```
+
 ### 3. Test ML Model Training Locally
 
-```powershell
+**PowerShell & Bash (same commands):**
+```bash
 # Train model locally (uses training_data.csv)
 python src/sagemaker/sagemaker/train_model.py
 
@@ -71,6 +101,7 @@ python src/sagemaker/sagemaker/train_model.py
 
 ### 4. Test Prediction Lambda Locally
 
+**PowerShell (Windows):**
 ```powershell
 # Create test prediction request
 $testRequest = @{
@@ -100,9 +131,33 @@ print('Note: Requires SageMaker endpoint to actually run')
 "
 ```
 
+**Bash (Linux/Mac):**
+```bash
+# Create test prediction request
+cat > test_event.json <<EOF
+{
+  "httpMethod": "POST",
+  "body": "{\"current_employees\": 1500, \"department\": \"Engineering\", \"average_salary\": 85000, \"turnover_rate\": 0.15, \"growth_rate\": 0.10}",
+  "headers": {
+    "Content-Type": "application/json"
+  }
+}
+EOF
+
+# Test Lambda function structure
+python -c "
+import json
+from src.lambda_functions.predictor import lambda_handler
+
+print('Lambda handler is valid and importable')
+print('Note: Requires SageMaker endpoint to actually run')
+"
+```
+
 ### 5. Test API Request Format
 
-```powershell
+**PowerShell & Bash (same commands):**
+```bash
 # Validate request payload
 python -c "
 import json
@@ -173,6 +228,7 @@ terraform output
 
 ### Step 3: Upload Training Data
 
+**PowerShell (Windows):**
 ```powershell
 # Get bucket name from Terraform output
 $bucketName = terraform output -raw training_data_bucket
@@ -184,13 +240,38 @@ aws s3 cp ../../data/training_data.csv s3://$bucketName/data/training_data.csv
 aws s3 ls s3://$bucketName/data/
 ```
 
+**Bash (Linux/Mac):**
+```bash
+# Get bucket name from Terraform output
+BUCKET_NAME=$(terraform output -raw training_data_bucket)
+
+# Upload training data
+aws s3 cp ../../data/training_data.csv s3://$BUCKET_NAME/data/training_data.csv
+
+# Verify upload
+aws s3 ls s3://$BUCKET_NAME/data/
+```
+
 ### Step 4: Train SageMaker Model
 
 **Option A: Using Python Script**
+
+PowerShell (Windows):
 ```powershell
 # Set environment variables
 $env:AWS_REGION = "us-east-1"
 $env:TRAINING_DATA_BUCKET = $bucketName
+
+# Run training script
+cd ../../src/sagemaker/sagemaker
+python train_model.py
+```
+
+Bash (Linux/Mac):
+```bash
+# Set environment variables
+export AWS_REGION="us-east-1"
+export TRAINING_DATA_BUCKET=$BUCKET_NAME
 
 # Run training script
 cd ../../src/sagemaker/sagemaker
@@ -205,6 +286,8 @@ python train_model.py
 5. Wait ~10-15 minutes for training
 
 **Option C: Using AWS CLI**
+
+PowerShell (Windows):
 ```powershell
 # Create training job
 aws sagemaker create-training-job `
@@ -217,9 +300,23 @@ aws sagemaker create-training-job `
     --stopping-condition MaxRuntimeInSeconds=3600
 ```
 
+Bash (Linux/Mac):
+```bash
+# Create training job
+aws sagemaker create-training-job \
+    --training-job-name "workforce-predictor-$(date +%Y%m%d-%H%M%S)" \
+    --algorithm-specification TrainingImage=<ecr-image>,TrainingInputMode=File \
+    --role-arn $(terraform output -raw sagemaker_role_arn) \
+    --input-data-config "[{\"ChannelName\":\"training\",\"DataSource\":{\"S3DataSource\":{\"S3DataType\":\"S3Prefix\",\"S3Uri\":\"s3://$BUCKET_NAME/data/\"}}}]" \
+    --output-data-config S3OutputPath=s3://$BUCKET_NAME/models/ \
+    --resource-config InstanceType=ml.m5.xlarge,InstanceCount=1,VolumeSizeInGB=10 \
+    --stopping-condition MaxRuntimeInSeconds=3600
+```
+
 ### Step 5: Deploy SageMaker Endpoint
 
-```powershell
+**PowerShell & Bash (same commands):**
+```bash
 # After training completes, deploy endpoint
 cd src/sagemaker/sagemaker
 python deploy_endpoint.py
@@ -233,6 +330,7 @@ python deploy_endpoint.py
 
 ### Step 6: Test the API
 
+**PowerShell (Windows):**
 ```powershell
 # Get API URL from Terraform
 $apiUrl = terraform output -raw api_gateway_url
@@ -253,8 +351,26 @@ $response = Invoke-RestMethod -Uri "$apiUrl/predict" -Method POST -Body $body -C
 $response | ConvertTo-Json -Depth 10
 ```
 
+**Bash (Linux/Mac):**
+```bash
+# Get API URL from Terraform
+API_URL=$(terraform output -raw api_gateway_url)
+
+# Test prediction endpoint with curl
+curl -X POST $API_URL/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "current_employees": 1500,
+    "department": "Engineering",
+    "average_salary": 85000,
+    "turnover_rate": 0.15,
+    "growth_rate": 0.10
+  }'
+```
+
 ### Step 7: Monitor Execution
 
+**PowerShell (Windows):**
 ```powershell
 # View Lambda logs
 aws logs tail /aws/lambda/workforce-predictor --follow
@@ -266,6 +382,20 @@ aws dynamodb scan --table-name $tableName --max-items 5
 # Monitor SageMaker endpoint
 $endpointName = terraform output -raw sagemaker_endpoint_name
 aws sagemaker describe-endpoint --endpoint-name $endpointName
+```
+
+**Bash (Linux/Mac):**
+```bash
+# View Lambda logs
+aws logs tail /aws/lambda/workforce-predictor --follow
+
+# Check DynamoDB predictions table
+TABLE_NAME=$(terraform output -raw predictions_table_name)
+aws dynamodb scan --table-name $TABLE_NAME --max-items 5
+
+# Monitor SageMaker endpoint
+ENDPOINT_NAME=$(terraform output -raw sagemaker_endpoint_name)
+aws sagemaker describe-endpoint --endpoint-name $ENDPOINT_NAME
 ```
 
 ---
@@ -531,6 +661,7 @@ terraform destroy
 
 ## 🚀 Quick Start Commands
 
+**PowerShell (Windows):**
 ```powershell
 # Complete local setup
 cd C:\Users\danpl\projects\utilities\dynamic-workforce
@@ -552,6 +683,32 @@ python deploy_endpoint.py
 cd ../../../infrastructure/terraform
 $apiUrl = terraform output -raw api_gateway_url
 Invoke-RestMethod -Uri "$apiUrl/predict" -Method POST -Body '{"current_employees":1500,"department":"Engineering","average_salary":85000,"turnover_rate":0.15,"growth_rate":0.10}' -ContentType "application/json"
+```
+
+**Bash (Linux/Mac):**
+```bash
+# Complete local setup
+cd ~/projects/utilities/dynamic-workforce
+pip install -r requirements.txt -r requirements-dev.txt
+pytest
+
+# Complete AWS deployment
+aws configure
+cd infrastructure/terraform
+terraform init
+terraform apply
+BUCKET_NAME=$(terraform output -raw training_data_bucket)
+aws s3 cp ../../data/training_data.csv s3://$BUCKET_NAME/data/training_data.csv
+cd ../../src/sagemaker/sagemaker
+python train_model.py
+python deploy_endpoint.py
+
+# Test API
+cd ../../../infrastructure/terraform
+API_URL=$(terraform output -raw api_gateway_url)
+curl -X POST $API_URL/predict \
+  -H "Content-Type: application/json" \
+  -d '{"current_employees":1500,"department":"Engineering","average_salary":85000,"turnover_rate":0.15,"growth_rate":0.10}'
 ```
 
 ---
